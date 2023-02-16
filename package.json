@@ -19,10 +19,12 @@
   "homepage": "https://github.com/jonathanadrino/sagara-express-server#readme",
   "dependencies": {
     "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.0.3",
     "express": "^4.18.2",
     "jsonwebtoken": "^9.0.0",
+    "mysql2": "^3.1.0",
     "nodemon": "^2.0.20",
-    "pg": "^8.8.0",
     "sequelize": "^6.28.0",
     "sequelize-cli": "^6.5.2"
   }
