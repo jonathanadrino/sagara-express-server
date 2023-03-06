@@ -34,6 +34,7 @@ const authentication = async function (req, res, next) {
     } else if (err.name === "JsonWebTokenError") {
       res.status(401).json({
         message: "Invalid token",
+        err
       });
     }
   }

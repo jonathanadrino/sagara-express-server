@@ -14,6 +14,7 @@ const {
 } = require("./models");
 const jwt = require("jsonwebtoken");
 const authentication = require("./middlewares/authentication");
+const axios = require("axios");
 
 app.use(cors());
 
@@ -203,6 +204,7 @@ app.get("/homeimage", async (req, res) => {
 
     res.status(200).json(images);
   } catch (err) {
+    console.log(err);
     res.status(500).json({
       message: "Internal server error",
     });
@@ -232,18 +234,69 @@ app.get("/track/:resi", async (req, res) => {
         name: "empty",
       };
     }
-    const request = await Order.findOne({
+
+    let data;
+
+    data = await Order.findOne({
       where: { resi: resi },
       include: Log,
     });
 
-    if (!request) {
+    if (data.vendor === "tgi") {
+      let tgiRequest = await axios({
+        method: "GET",
+        url: `https://tgi.omile.id/tgi/restapi/basic/tracking/list?id=${resi}`,
+        headers: {
+          "api-key": process.env.TGI_API_KEY,
+          "credential-account": process.env.TGI_CREDENTIAL,
+        },
+      });
+
+      console.log(tgiRequest.data, "data nih");
+
+      if (data.name !== tgiRequest.data.shipper_name) {
+        const request = await Order.update(
+          {
+            sender: tgiRequest.data.shipper_name,
+            recipient: tgiRequest.data.consignee_name,
+            recipientAddress: tgiRequest.data.address,
+            recipientContact: tgiRequest.data.consignee_phone,
+            recipientCountry: tgiRequest.data.destination,
+            cityOrigin: tgiRequest.data.origin,
+            updatedBy: "autoUpdate",
+          },
+          {
+            where: {
+              resi,
+            },
+          }
+        );
+
+        data = await Order.findOne({
+          where: { resi: resi },
+        });
+      }
+
+      data.dataValues.Logs = tgiRequest.data.process;
+
+      console.log(data.dataValues.Logs);
+
+      data.dataValues.Logs.forEach((e) => {
+        e.description = e.status;
+        e.date = e.time;
+      });
+
+      console.log(data);
+    }
+
+    if (!data) {
       throw {
         name: "not found",
       };
     }
-    res.status(200).json(request);
+    res.status(200).json(data);
   } catch (err) {
+    console.log(err);
     if (err.name === "empty") {
       res.status(400).json({
         message: "Empty resi",
@@ -251,6 +304,10 @@ app.get("/track/:resi", async (req, res) => {
     } else if (err.name === "not found") {
       res.status(404).json({
         message: "Order not found",
+      });
+    } else if (err.response.data.message === "Data Not Found") {
+      res.status(404).json({
+        message: "Order belum diinput vendor",
       });
     }
   }
@@ -260,7 +317,7 @@ app.get("/order/:id", async (req, res) => {
   try {
     const { id } = req.params;
 
-    const data = await Order.findOne({
+    let data = await Order.findOne({
       where: { id: id },
       include: [{ model: User, attributes: { exclude: ["password"] } }, Log],
       order: [[Log, "id", "ASC"]],
@@ -272,8 +329,55 @@ app.get("/order/:id", async (req, res) => {
       };
     }
 
+    if (data.vendor === "tgi") {
+      let tgiRequest = await axios({
+        method: "GET",
+        url: `https://tgi.omile.id/tgi/restapi/basic/tracking/list?id=${data.resi}`,
+        headers: {
+          "api-key": process.env.TGI_API_KEY,
+          "credential-account": process.env.TGI_CREDENTIAL,
+        },
+      });
+
+      console.log(tgiRequest.data, "data nih");
+
+      if (data.name !== tgiRequest.data.shipper_name) {
+        const request = await Order.update(
+          {
+            sender: tgiRequest.data.shipper_name,
+            recipient: tgiRequest.data.consignee_name,
+            recipientAddress: tgiRequest.data.address,
+            recipientContact: tgiRequest.data.consignee_phone,
+            recipientCountry: tgiRequest.data.destination,
+            cityOrigin: tgiRequest.data.origin,
+            updatedBy: "autoUpdate",
+          },
+          {
+            where: {
+              resi: data.resi,
+            },
+          }
+        );
+
+        data = await Order.findOne({
+          where: { resi: data.resi },
+          include: [{ model: User, attributes: { exclude: ["password"] } }],
+        });
+      }
+
+      data.dataValues.Logs = tgiRequest.data.process;
+
+      data.dataValues.Logs.forEach((e) => {
+        e.description = e.status;
+        e.date = e.time;
+      });
+
+      console.log(data);
+    }
+
     res.status(200).json(data);
   } catch (err) {
+    console.log(err);
     res.status(404).json({
       message: "Order not found",
     });
@@ -298,6 +402,7 @@ app.post("/order", async (req, res) => {
   try {
     const UserId = req.user.id;
     const {
+      vendor,
       resi,
       sender,
       senderContact,
@@ -310,22 +415,44 @@ app.post("/order", async (req, res) => {
 
     let name = "";
 
+    if (!vendor) {
+      name = "vendor";
+    }
+
     if (!resi) {
       name = "resi";
-    } else if (!sender) {
-      name = "sender";
-    } else if (!senderContact) {
-      name = "senderContact";
-    } else if (!recipient) {
-      name = "recipient";
-    } else if (!recipientAddress) {
-      name = "recipientAddress";
-    } else if (!recipientContact) {
-      name = "recipientContact";
-    } else if (!recipientCountry) {
-      name = "recipientCountry";
-    } else if (!cityOrigin) {
-      name = "cityOrigin";
+    }
+
+    if (vendor === "manual") {
+      if (!sender) {
+        name = "sender";
+      } else if (!senderContact) {
+        name = "senderContact";
+      } else if (!recipient) {
+        name = "recipient";
+      } else if (!recipientAddress) {
+        name = "recipientAddress";
+      } else if (!recipientContact) {
+        name = "recipientContact";
+      } else if (!recipientCountry) {
+        name = "recipientCountry";
+      } else if (!cityOrigin) {
+        name = "cityOrigin";
+      }
+
+      const request = await Order.create({
+        vendor,
+        resi,
+        sender,
+        senderContact,
+        recipient,
+        recipientAddress,
+        recipientContact,
+        status: "Ongoing",
+        UserId,
+        recipientCountry,
+        cityOrigin,
+      });
     }
 
     if (name) {
@@ -335,23 +462,27 @@ app.post("/order", async (req, res) => {
       };
     }
 
-    const request = await Order.create({
-      resi,
-      sender,
-      senderContact,
-      recipient,
-      recipientAddress,
-      recipientContact,
-      status: "Ongoing",
-      UserId,
-      recipientCountry,
-      cityOrigin,
-    });
+    if (vendor === "tgi") {
+      await Order.create({
+        vendor: "tgi",
+        resi,
+        sender: "tgi",
+        senderContact: "tgi",
+        recipient: "tgi",
+        recipientAddress: "tgi",
+        recipientContact: "tgi",
+        status: "Ongoing",
+        UserId,
+        recipientCountry: "tgi",
+        cityOrigin: "tgi",
+      });
+    }
 
     res.status(201).json({
       message: "Order created",
     });
   } catch (err) {
+    console.log(err);
     if (err.name === "empty") {
       res.status(400).json({
         message: `empty ${err.value}`,
@@ -756,6 +887,7 @@ app.post("/homeimage", async (req, res) => {
       message: "Image added",
     });
   } catch (err) {
+    console.log(err);
     if (err.name === "empty") {
       res.status(400).json({
         message: "Empty url",

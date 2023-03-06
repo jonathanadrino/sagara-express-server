@@ -15,6 +15,7 @@ module.exports = (sequelize, DataTypes) => {
   }
   Order.init(
     {
+      vendor: DataTypes.STRING,
       resi: DataTypes.STRING,
       sender: DataTypes.STRING,
       senderContact: DataTypes.STRING,
